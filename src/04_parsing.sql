@@ -2,7 +2,7 @@ CREATE OR REPLACE FUNCTION construct_rrule(
     freq rrule_freq,
     date_range daterange,
     "interval" int,
-    anchor_date date,
+    interval_offset int,
     days_of_month int[],
     weekdays text[],
     months int[]
@@ -33,10 +33,7 @@ BEGIN
         freq,
         date_range,
         interval,
-        CASE WHEN interval > 1 AND anchor_date IS NOT NULL
-            THEN epoch_interval_number(freq, anchor_date) % interval
-            ELSE 0
-        END,
+        interval_offset,
         coalesce(days_of_month_flags_from_start, 0),
         coalesce(days_of_month_flags_from_end, 0),
         weekdays IS NOT NULL,
@@ -165,7 +162,10 @@ BEGIN
         freq,
         date_range,
         interval,
-        start_date,
+        CASE WHEN interval > 1 AND start_date IS NOT NULL
+            THEN epoch_interval_number(freq, start_date) % interval
+            ELSE 0
+        END,
         days_of_month,
         days,
         months
@@ -185,9 +185,9 @@ BEGIN
         (payload->>'freq')::rrule_freq,
         (payload->>'dateRange')::daterange,
         COALESCE((payload->'interval')::int, 1),
-        (payload->>'startDate')::date,
+        (payload->'intervalOffset')::int,
         (SELECT array_agg(day::int) FROM jsonb_array_elements(payload->'daysOfMonth') day),
-        (SELECT array_agg(weekday::text) FROM jsonb_array_elements(payload->'weekdays') weekday),
+        (SELECT array_agg(weekday #>> '{}') FROM jsonb_array_elements(payload->'weekdays') weekday),
         (SELECT array_agg(month::int) FROM jsonb_array_elements(payload->'months') month)
     );
 END;
