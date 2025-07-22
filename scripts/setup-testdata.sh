@@ -1,3 +1,5 @@
+#!/bin/bash
+psql -U postgres -d rregres << EOF
 DROP TABLE test;
 
 CREATE TABLE test(
@@ -21,3 +23,6 @@ FROM (
         FLOOR(random() * 6)+1 as interval
     FROM generate_series(1,1000000)
 );
+EOF
+
+touch .task_status/testdata-setup

@@ -1,6 +1,6 @@
 services:
   db:
-    image: rregres
+    image: postgres:17.5-bullseye
     restart: always
     shm_size: 128mb
     environment:
