@@ -35,17 +35,15 @@ CREATE OR REPLACE FUNCTION epoch_interval_number(
     freq rrule_freq,
     date date
 ) RETURNS int LANGUAGE SQL IMMUTABLE AS $$
-    SELECT
-        (
-            EXTRACT(epoch FROM date)::int
+    SELECT CASE
+        WHEN freq = 'DAILY' THEN
+            EXTRACT(epoch FROM date)::bigint / 86400
+        WHEN freq = 'WEEKLY' THEN
             -- 1st Jan 1970 is a Thursday, so we add offset back to the start of that week
-            + (CASE WHEN freq = 'WEEKLY' THEN 345600 ELSE 0 END) 
-        ) / (
-            CASE
-                WHEN freq = 'DAILY' THEN 86400
-                WHEN freq = 'WEEKLY' THEN 604800 
-                ELSE 2628000 END
-        )
+            -- (Monday 29th December, 1969)
+            (EXTRACT(epoch FROM date)::bigint + 259200) / 604800
+        ELSE EXTRACT(year FROM date)::int * 12 + EXTRACT(month FROM date) - 1 
+    END
 $$;
 
 CREATE OR REPLACE FUNCTION days_from_end_of_month(

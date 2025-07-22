@@ -33,8 +33,8 @@ BEGIN
     END LOOP;
     
     RAISE NOTICE 'details %', details;
-    IF details->>'WKST' IS NOT NULL AND details->>'WKST' != 'SU' THEN
-        RAISE WARNING 'Weeks starting on any day other than Sunday is not yet supported - this flag is ignored' USING ERRCODE = 'data_exception';
+    IF details->>'WKST' IS NOT NULL AND details->>'WKST' != 'MO' THEN
+        RAISE WARNING 'Weeks starting on any day other than Monday is not yet supported - this flag is ignored' USING ERRCODE = 'data_exception';
     END IF;
 
     IF details->>'UNTIL' IS NOT NULL THEN
