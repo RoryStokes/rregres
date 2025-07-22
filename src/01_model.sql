@@ -73,11 +73,12 @@ CREATE OR REPLACE FUNCTION rrule_check_valid_months(
     )
 $$;
 
-CREATE DOMAIN rrule AS rrule_compound CHECK (
-    (VALUE).freq IS NOT NULL AND
-    (VALUE).date_range IS NOT NULL AND
-    (VALUE).by_weekday IS NOT NULL AND
-    (VALUE).by_month IS NOT NULL AND
-    rrule_check_valid_weekdays(VALUE) AND
-    rrule_check_valid_months(VALUE)
-);
+CREATE DOMAIN rrule AS rrule_compound
+    CONSTRAINT freq_not_null CHECK ((VALUE).freq IS NOT NULL)
+    CONSTRAINT date_range_not_null CHECK ((VALUE).date_range IS NOT NULL)
+    CONSTRAINT by_weekday_not_null CHECK ((VALUE).by_weekday IS NOT NULL)
+    CONSTRAINT by_month_not_null CHECK ((VALUE).by_month IS NOT NULL)
+    CONSTRAINT days_of_month_flags_from_start_not_null CHECK ((VALUE).days_of_month_flags_from_start IS NOT NULL)
+    CONSTRAINT days_of_month_flags_from_end_not_null CHECK ((VALUE).days_of_month_flags_from_end IS NOT NULL)
+    CONSTRAINT by_weekday_false_or_weekdays_not_null CHECK (rrule_check_valid_weekdays(VALUE))
+    CONSTRAINT by_month_false_or_months_not_null CHECK (rrule_check_valid_months(VALUE));

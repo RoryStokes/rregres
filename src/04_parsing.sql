@@ -1,3 +1,69 @@
+CREATE OR REPLACE FUNCTION construct_rrule(
+    freq rrule_freq,
+    date_range daterange,
+    "interval" int,
+    anchor_date date,
+    days_of_month int[],
+    weekdays text[],
+    months int[]
+)
+RETURNS rrule
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    subsequent_day TEXT;
+    days_of_month_flags_from_start int DEFAULT 0;
+    days_of_month_flags_from_end int DEFAULT 0;
+BEGIN
+    IF days_of_month IS NOT NULL THEN
+        SELECT sum(distinct(bit_flag)) FROM (
+            SELECT 1 << (day_number - 1) as bit_flag FROM
+                unnest(days_of_month) day_number
+                WHERE day_number > 0
+        ) INTO days_of_month_flags_from_start;
+
+        SELECT sum(distinct(bit_flag)) FROM (
+            SELECT 1 << (-1 - day_number) as bit_flag FROM
+                unnest(days_of_month) day_number
+                WHERE day_number < 0
+        ) INTO days_of_month_flags_from_end;
+    END IF;
+
+    RETURN (
+        freq,
+        date_range,
+        interval,
+        CASE WHEN interval > 1 AND anchor_date IS NOT NULL
+            THEN epoch_interval_number(freq, anchor_date) % interval
+            ELSE 0
+        END,
+        coalesce(days_of_month_flags_from_start, 0),
+        coalesce(days_of_month_flags_from_end, 0),
+        weekdays IS NOT NULL,
+        'SU' = ANY(weekdays),
+        'MO' = ANY(weekdays),
+        'TU' = ANY(weekdays),
+        'WE' = ANY(weekdays),
+        'TH' = ANY(weekdays),
+        'FR' = ANY(weekdays),
+        'SA' = ANY(weekdays),
+        months IS NOT NULL,
+        1 = ANY(months),
+        2 = ANY(months),
+        3 = ANY(months),
+        4 = ANY(months),
+        5 = ANY(months),
+        6 = ANY(months),
+        7 = ANY(months),
+        8 = ANY(months),
+        9 = ANY(months),
+        10 = ANY(months),
+        11 = ANY(months),
+        12 = ANY(months)
+    );
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION from_rrule_string(
     rrule_string TEXT
 )
@@ -11,15 +77,14 @@ DECLARE
     days_with_numbers text[];
     days text[];
     occurrence_within_month int;
-    months text[];
+    months int[];
     start_date date;
     end_date date;
     date_range daterange;
     interval int;
     freq rrule_freq;
     subsequent_day TEXT;
-    days_of_month_flags_from_start int DEFAULT 0;
-    days_of_month_flags_from_end int DEFAULT 0;
+    days_of_month int[];
 BEGIN
     FOR line IN (SELECT unnest(string_to_array(rrule_string, E'\n'))) LOOP
         SELECT split_part(line, ':', 2) INTO content;
@@ -47,17 +112,9 @@ BEGIN
     END IF;
 
     IF details->>'BYMONTHDAY' IS NOT NULL THEN
-        SELECT coalesce(sum(distinct(bit_flag)), 0) FROM (
-            SELECT 1 << (day_number::int - 1) as bit_flag FROM
-                unnest(string_to_array(details->>'BYMONTHDAY',',')) day_number
-                WHERE day_number::int > 0
-        ) INTO days_of_month_flags_from_start;
-
-        SELECT coalesce(sum(distinct(bit_flag)), 0) FROM (
-            SELECT 1 << (-1 - day_number::int) as bit_flag FROM
-                unnest(string_to_array(details->>'BYMONTHDAY',',')) day_number
-                WHERE day_number::int < 0
-        ) INTO days_of_month_flags_from_end;
+        SELECT array_agg(day_number::int) FROM
+            unnest(string_to_array(details->>'BYMONTHDAY',',')) day_number
+            INTO days_of_month;
     ELSIF days_with_numbers IS NOT NULL THEN
         IF length(days_with_numbers[1]) > 2 THEN
             SELECT left(days_with_numbers[1], -2)::int INTO occurrence_within_month;
@@ -73,16 +130,20 @@ BEGIN
                 END IF;
             END LOOP;
         END IF;
-    END IF;
-
-    IF occurrence_within_month > 0 THEN
-        -- '011111111' represents the first week of the month, which we then bit shift to the appropriate week
-        SELECT '01111111'::bit(8)::int << ((occurrence_within_month - 1) * 7) INTO days_of_month_flags_from_start;
-        SELECT 0 INTO days_of_month_flags_from_end;
-    ELSIF occurrence_within_month < 0 THEN
-        -- '011111111' represents the last week of the month, which we then bit shift to the appropriate week
-        SELECT '01111111'::bit(8)::int << ((-1 - occurrence_within_month) * 7) INTO days_of_month_flags_from_end;
-        SELECT 0 INTO days_of_month_flags_from_start;
+        
+        IF occurrence_within_month > 0 THEN
+            SELECT array_agg(day_number) FROM 
+                generate_series(
+                    7*(occurrence_within_month) - 6,
+                    7*(occurrence_within_month)
+                ) day_number INTO days_of_month;
+        ELSIF occurrence_within_month < 0 THEN
+            SELECT array_agg(day_number) FROM 
+                generate_series(
+                    7*(occurrence_within_month),
+                    7*(occurrence_within_month) + 6
+                ) day_number INTO days_of_month;
+        END IF;
     END IF;
 
     IF details->>'BYMONTH' IS NOT NULL THEN
@@ -100,37 +161,34 @@ BEGIN
     END IF;
 
 
-    RETURN (
+    RETURN construct_rrule(
         freq,
         date_range,
         interval,
-        CASE WHEN interval > 1 AND start_date IS NOT NULL
-            THEN epoch_interval_number(freq, start_date) % interval
-            ELSE 0
-        END,
-        days_of_month_flags_from_start,
-        days_of_month_flags_from_end,
-        days IS NOT NULL,
-        'SU' = ANY(days),
-        'MO' = ANY(days),
-        'TU' = ANY(days),
-        'WE' = ANY(days),
-        'TH' = ANY(days),
-        'FR' = ANY(days),
-        'SA' = ANY(days),
-        months IS NOT NULL,
-        '1' = ANY(days),
-        '2' = ANY(days),
-        '3' = ANY(days),
-        '4' = ANY(days),
-        '5' = ANY(days),
-        '6' = ANY(days),
-        '7' = ANY(days),
-        '8' = ANY(days),
-        '9' = ANY(days),
-        '10' = ANY(days),
-        '11' = ANY(days),
-        '12' = ANY(days)
+        start_date,
+        days_of_month,
+        days,
+        months
+    );
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION from_json(
+    payload jsonb
+)
+RETURNS rrule
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN construct_rrule(
+        (payload->>'freq')::rrule_freq,
+        (payload->>'dateRange')::daterange,
+        COALESCE((payload->'interval')::int, 1),
+        (payload->>'startDate')::date,
+        (SELECT array_agg(day::int) FROM jsonb_array_elements(payload->'daysOfMonth') day),
+        (SELECT array_agg(weekday::text) FROM jsonb_array_elements(payload->'weekdays') weekday),
+        (SELECT array_agg(month::int) FROM jsonb_array_elements(payload->'months') month)
     );
 END;
 $$;
