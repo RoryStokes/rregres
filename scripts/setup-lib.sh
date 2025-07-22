@@ -8,4 +8,4 @@ for script in src/*.sql; do
 done
 
 mkdir --parents .task_status
-touch .task_status/core-setup
+touch .task_status/lib-setup
