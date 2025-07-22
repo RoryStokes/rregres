@@ -23,9 +23,31 @@ FROM (
     FROM generate_series(1,1000000)
 );
 
-SELECT count(*) FROM test 
-    WHERE epoch_interval_number((rrule).freq, now()::date) % (rrule).interval = (rrule).interval_offset;
+DROP TABLE test;
+
+CREATE TABLE test(
+    name TEXT,
+    month_int int,
+    month_reverse_int int,
+    month_arr int[],
+    month_json jsonb
+);
 
 
-SELECT count(*) FROM test
-    WHERE rrule_matches_date((rrule), '2025-07-10'::date);
+INSERT INTO test(name, month_int, month_reverse_int, month_arr, month_json) SELECT
+    'Test '||i,
+    month_int,
+    month_reverse_int,
+    ARRAY(
+        SELECT generate_series + 1 
+        FROM generate_series(0,30)
+        WHERE (month_int::int >> generate_series::int) & 1
+    ),
+    '{}'
+FROM (
+    SELECT
+        generate_series as i,
+        floor(random() * 2147483647) as month_int,
+        floor(random() * 2147483647) as month_reverse_int
+    FROM generate_series(1,100)
+);

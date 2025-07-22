@@ -48,6 +48,14 @@ CREATE OR REPLACE FUNCTION epoch_interval_number(
         )
 $$;
 
+CREATE OR REPLACE FUNCTION days_from_end_of_month(
+    date DATE
+) RETURNS int LANGUAGE SQL IMMUTABLE AS $$
+    SELECT EXTRACT(
+        days from (date_trunc('month', date) + interval '1 month - 1 day' - date)
+    )
+$$;
+
 CREATE OR REPLACE FUNCTION rrule_matches_date(
     rule rrule,
     date DATE
@@ -58,7 +66,9 @@ CREATE OR REPLACE FUNCTION rrule_matches_date(
         ) AND (
             NOT rule.by_month OR month_match(rule, EXTRACT(month FROM date)::int)
         ) AND (
-            NOT rule.freq = 'MONTHLY' OR EXTRACT(day FROM date)::int = rule.day_of_month
+            (rule.days_of_month_flags_from_end = 0 AND rule.days_of_month_flags_from_start = 0) OR
+            (rule.days_of_month_flags_from_start & (1 << (EXTRACT(day FROM date)::int - 1))) != 0 OR
+            (rule.days_of_month_flags_from_end & (1 << days_from_end_of_month(date))) != 0
         ) AND (
             rule.interval IS NULL OR
             rule.interval = 1 OR

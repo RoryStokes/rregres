@@ -10,7 +10,11 @@ CREATE TYPE rrule_compound AS (
     interval int,
     -- offset is calculated based on interval and frequency, relative to UNIX epoch
     interval_offset int,
-    day_of_month int,
+    -- treated as bit strings for days that an event can occur on
+    -- if both are zero, any day of the month is valid
+    -- otherwise from least to most significant, the bits represent if a day is permitted 
+    days_of_month_flags_from_start int,
+    days_of_month_flags_from_end int,
     -- restrict occurrences by day of week
     by_weekday BOOLEAN,
     su BOOLEAN,

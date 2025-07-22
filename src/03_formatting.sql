@@ -28,8 +28,7 @@ CREATE OR REPLACE FUNCTION rrule_to_string(
             -1
         ) || ' ' ELSE '' END ||
         (rule).date_range::text || ' ' ||
-        CASE WHEN (rule).interval IS NULL THEN '' ELSE 'interval=' || (rule).interval || ' ' END ||
-        CASE WHEN (rule).day_of_month IS NULL THEN '' ELSE 'day_of_month=' || (rule).day_of_month || ' ' END
+        CASE WHEN (rule).interval IS NULL THEN '' ELSE 'interval=' || (rule).interval || ' ' END
 $$;
 
 CREATE CAST (rrule_compound AS TEXT)
