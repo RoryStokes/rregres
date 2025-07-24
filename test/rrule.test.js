@@ -69,16 +69,30 @@ describe.each(rulesToTest)("for %s", (rule) => {
     test.each(testDateRanges)(
       "for dates around $label",
       async ({ from, to }) => {
+        // Calculating occurrences in db should give the same result
         const occurrencesFromJs = rrule
           .between(new Date(from), new Date(to), true)
           .map((d) => d.toISOString().split("T")[0]);
 
-        const result = await client.query(
+        const queryForOccurrences = await client.query(
           "SELECT occurrences(from_rrule_string($1::text), $2::date, $3::date)::text",
           [rruleString, from, to]
         );
-        const occurrencesFromDb = result.rows.map(row => row.occurrences)
+        const occurrencesFromDb = queryForOccurrences.rows.map(
+          (row) => row.occurrences
+        );
         expect(occurrencesFromDb).toEqual(occurrencesFromJs);
+
+        // And re-stringifying the rule should give an equivalent expression
+        const queryForText = await client.query("SELECT $1::text", [
+          rruleString,
+        ]);
+        const restringifiedRule = queryForText.rows[0].text;
+        const occurrencesFromRoundTrippedRule = rrulestr(restringifiedRule)
+          .between(new Date(from), new Date(to), true)
+          .map((d) => d.toISOString().split("T")[0]);
+
+        expect(occurrencesFromRoundTrippedRule).toEqual(occurrencesFromJs);
       }
     );
   });

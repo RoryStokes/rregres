@@ -1,4 +1,5 @@
 CREATE TYPE rrule_freq AS ENUM (
+    'YEARLY',
     'MONTHLY',
     'WEEKLY',
     'DAILY'

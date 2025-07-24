@@ -27,7 +27,7 @@ local_resource(
     "JS tests",
     dir="./test",
     cmd="npm run test .",
-    deps=["./.task_status/lib-setup"],
+    deps=["./.task_status/lib-setup", "./test/rrule.test.js"],
     labels=[label_tests]
 )
 

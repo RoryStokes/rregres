@@ -42,7 +42,10 @@ CREATE OR REPLACE FUNCTION epoch_interval_number(
             -- 1st Jan 1970 is a Thursday, so we add offset back to the start of that week
             -- (Monday 29th December, 1969)
             (EXTRACT(epoch FROM date)::bigint + 259200) / 604800
-        ELSE EXTRACT(year FROM date)::int * 12 + EXTRACT(month FROM date) - 1 
+        WHEN freq = 'MONTHLY' THEN
+            EXTRACT(year FROM date)::int * 12 + EXTRACT(month FROM date) - 1 
+        WHEN freq = 'YEARLY' THEN
+            EXTRACT(year FROM date)::int
     END
 $$;
 
@@ -90,3 +93,15 @@ CREATE OR REPLACE FUNCTION occurrences(
             FROM generate_series(from_date::timestamp, until_date::timestamp, '1 day'::interval)
     ) WHERE rule @> date
 $$;
+
+CREATE OR REPLACE FUNCTION next_occurrence(
+    rule rrule,
+    from_date date
+) RETURNS date LANGUAGE SQL IMMUTABLE AS $$
+    SELECT CASE
+        WHEN from_date < lower((rule).date_range) THEN next_occurrence(rule, lower((rule).date_range))
+        WHEN from_date > upper((rule).date_range) THEN NULL
+        WHEN rule @> from_date THEN from_date
+        ELSE next_occurrence(rule, (from_date + '1 day'::interval)::date)
+    END
+$$

@@ -149,14 +149,7 @@ BEGIN
 
     SELECT daterange(start_date, end_date, '[)') INTO date_range;
     SELECT COALESCE((details->>'INTERVAL')::int, 1) INTO interval;
-
-    IF details->>'FREQ' = 'YEARLY' THEN
-        SELECT interval * 12 INTO interval;
-        SELECT 'MONTHLY' INTO freq;
-    ELSE
-        SELECT (details->>'FREQ')::rrule_freq INTO freq;
-    END IF;
-
+    SELECT (details->>'FREQ')::rrule_freq INTO freq;
 
     RETURN construct_rrule(
         freq,
