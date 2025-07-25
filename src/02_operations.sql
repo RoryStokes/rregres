@@ -104,4 +104,59 @@ CREATE OR REPLACE FUNCTION next_occurrence(
         WHEN rule @> from_date THEN from_date
         ELSE next_occurrence(rule, (from_date + '1 day'::interval)::date)
     END
-$$
+$$;
+
+CREATE OR REPLACE FUNCTION next_n_occurrences(
+    rule rrule,
+    from_date date,
+    n int
+) RETURNS setof date
+LANGUAGE SQL IMMUTABLE AS $$
+    WITH RECURSIVE occurrence AS (
+        SELECT 1 as i, next_occurrence(rule, from_date) as d
+        UNION
+        SELECT i + 1, next_occurrence(rule, (d + '1 day'::interval)::date) FROM occurrence WHERE i < n
+    ) SELECT d FROM occurrence;
+$$;
+
+CREATE OR REPLACE FUNCTION restricted_to_date_range(
+    rule rrule,
+    date_range daterange
+) RETURNS rrule
+LANGUAGE SQL IMMUTABLE AS $$
+    SELECT (
+        (rule).freq,
+        (rule).date_range * date_range,
+        (rule).interval,
+        (rule).interval_offset,
+        (rule).days_of_month_flags_from_start,
+        (rule).days_of_month_flags_from_end,
+        (rule).by_weekday,
+        (rule).su,
+        (rule).mo,
+        (rule).tu,
+        (rule).we,
+        (rule).th,
+        (rule).fr,
+        (rule).sa,
+        (rule).by_month,
+        (rule).jan,
+        (rule).feb,
+        (rule).mar,
+        (rule).apr,
+        (rule).may,
+        (rule).jun,
+        (rule).jul,
+        (rule).aug,
+        (rule).sep,
+        (rule).oct,
+        (rule).nov,
+        (rule).dec
+    )
+$$;
+
+CREATE OPERATOR * (
+    function = restricted_to_date_range,
+    leftarg = rrule,
+    rightarg = daterange
+);

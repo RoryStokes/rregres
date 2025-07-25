@@ -23,6 +23,8 @@ const rulesToTest = [
   "RRULE:FREQ=MONTHLY;BYMONTHDAY=-2;INTERVAL=3",
   "RRULE:FREQ=WEEKLY;BYDAY=MO,TU",
   "RRULE:FREQ=WEEKLY;BYDAY=FR;INTERVAL=2",
+  "RRULE:FREQ=WEEKLY;BYDAY=WE;INTERVAL=2;COUNT=6",
+  "RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=6",
 ];
 
 const testDateRanges = [
@@ -37,14 +39,14 @@ const testDateRanges = [
     to: "2023-03-10",
   },
   {
-    label: "new year 23/25",
-    from: "2023-12-25",
-    to: "2024-01-10",
-  },
-  {
     label: "end of feb 24 (leap year)",
     from: "2024-02-25",
     to: "2024-03-10",
+  },
+  {
+    label: "all of 2024 and 2025",
+    from: "2024-01-01",
+    to: "2026-01-01",
   },
 ];
 

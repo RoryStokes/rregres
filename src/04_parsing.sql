@@ -147,9 +147,36 @@ BEGIN
         SELECT string_to_array(details->>'BYMONTH', ',') INTO months; 
     END IF;
 
-    SELECT daterange(start_date, end_date, '[)') INTO date_range;
+    SELECT daterange(start_date, end_date, '[]') INTO date_range;
     SELECT COALESCE((details->>'INTERVAL')::int, 1) INTO interval;
     SELECT (details->>'FREQ')::rrule_freq INTO freq;
+
+    IF details->>'COUNT' IS NOT NULL THEN
+        IF start_date IS NULL THEN
+            RAISE WARNING 'This library does not support arbitrary COUNTs without a DTSTART date to anchor them, this will be ignored' USING ERRCODE = 'data_exception';
+        ELSE
+            SELECT date_range * daterange(
+                null, 
+                max(occurrence_date),
+                '[]'
+            ) FROM next_n_occurrences(
+                    construct_rrule(
+                        freq,
+                        date_range,
+                        interval,
+                        CASE WHEN interval > 1 AND start_date IS NOT NULL
+                            THEN epoch_interval_number(freq, start_date) % interval
+                            ELSE 0
+                        END,
+                        days_of_month,
+                        days,
+                        months
+                    ),
+                    start_date,
+                    (details->>'COUNT')::int
+                ) occurrence_date INTO date_range;
+        END IF;
+    END IF;
 
     RETURN construct_rrule(
         freq,
