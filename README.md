@@ -31,6 +31,25 @@ rregres=# SELECT occurrences(from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO'), '2
 (4 rows)
 ```
 
+## iCalendar compatibility
+
+| Property     | Support |
+|--------------|-   |
+| FREQ         | :warning:          "DAILY" / "WEEKLY" / "MONTHLY" / "YEARLY"
+| UNTIL        | :white_check_mark: A date in YYYYMMDD format, or YYYYMMDDT*
+| COUNT        | :white_check_mark: Any integer value
+| INTERVAL     | :white_check_mark: Any integer value
+| BYSECOND     | :x:                Not supported
+| BYMINUTE     | :x:                Not supported
+| BYHOUR       | :x:                Not supported
+| BYDAY        | :warning:          A comma separated list of days ("SU" / "MO" / "TU" / "WE" / "TH" / "FR" / "SA"), optionally all prefixed with *the same* positive of negative integer.
+| BYMONTHDAY   | :white_check_mark: A comma integer value up to 31
+| BYYEARDAY    | :x:                Not yet supported, but planned
+| BYWEEKNO     | :x:                Not yet supported, but planned
+| BYMONTH      | :white_check_mark: A comma separated list of integers 1-12, representing months
+| BYSETPOS     | :x:                Not yet supported, but planned
+| WKST         | :x:                This is assumed to be the default (MO), and any other value will cause an error. The full implications of this flag need to be understood before handling can be considered.
+
 ## Performance
 Testing on a set of 1 million randomly generated weekly recurrence rules to show query optimisation and performance. Result takes under 0.4 seconds to count the rules that match a specific date - the target is to keep this number below 1 second as functionality is expanded and logic is confirmed.
 
