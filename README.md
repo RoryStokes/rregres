@@ -42,7 +42,7 @@ rregres=# SELECT occurrences(from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO'), '2
 | BYSECOND     | :x:                Not supported
 | BYMINUTE     | :x:                Not supported
 | BYHOUR       | :x:                Not supported
-| BYDAY        | :warning:          A comma separated list of days ("SU" / "MO" / "TU" / "WE" / "TH" / "FR" / "SA"), optionally all prefixed with *the same* positive of negative integer.
+| BYDAY        | :warning:          A comma separated list of days ("SU" / "MO" / "TU" / "WE" / "TH" / "FR" / "SA"), optionally all prefixed with *the same* positive or negative integer.
 | BYMONTHDAY   | :white_check_mark: A comma integer value up to 31
 | BYYEARDAY    | :x:                Not yet supported, but planned
 | BYWEEKNO     | :x:                Not yet supported, but planned
