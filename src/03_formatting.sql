@@ -59,7 +59,7 @@ AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION to_rrule_string(
-    rule rrule_compound
+    rule rrule
 )
 RETURNS text
 LANGUAGE plpgsql
@@ -79,7 +79,7 @@ BEGIN
     RETURN (CASE 
         WHEN lower((rule).date_range) IS NULL THEN ''
         ELSE 'DTSTART:' ||
-            to_char(next_occurence(rule, lower((rule).date_range)), 'YYYYMMDDT000000Z') ||
+            to_char(next_occurrence(rule, lower((rule).date_range)), 'YYYYMMDDT000000Z') ||
             E'\n'
         END
     ) || 'RRULE:' || array_to_string((
@@ -89,7 +89,7 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION to_json(
-    rule rrule_compound
+    rule rrule
 )
 RETURNS jsonb
 LANGUAGE plpgsql

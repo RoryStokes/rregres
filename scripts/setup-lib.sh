@@ -14,5 +14,7 @@ for script in src/*.sql; do
     psql -U postgres -v ON_ERROR_STOP=1 -d rregres -f $script;
 done
 
+psql -U postgres -v ON_ERROR_STOP=1 -d rregres -f test/old_lib.sql;
+
 mkdir --parents .task_status
 touch .task_status/lib-setup
