@@ -69,7 +69,7 @@ DECLARE
 BEGIN
     SELECT jsonb_strip_nulls(jsonb_build_object(
         'FREQ', (rule).freq,
-        'UNTIL', to_char(upper((rule).date_range), 'YYYYMMDDT000000Z'),
+        'UNTIL', to_char(upper((rule).date_range) - 1, 'YYYYMMDDT000000Z'),
         'INTERVAL', (rule).interval,
         'BYMONTHDAY', array_to_string(days_of_month(rule), ','),
         'BYDAY', array_to_string(weekdays(rule), ','),

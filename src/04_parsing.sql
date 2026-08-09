@@ -100,7 +100,7 @@ BEGIN
     END IF;
 
     IF details->>'UNTIL' IS NOT NULL THEN
-        SELECT to_date(split_part(content, 'T',1), 'YYYYMMDD') INTO end_date; 
+        SELECT to_date(split_part(details->>'UNTIL', 'T',1), 'YYYYMMDD') INTO end_date;
     END IF;
 
     IF details->>'BYDAY' IS NOT NULL THEN
@@ -208,7 +208,7 @@ BEGIN
         (payload->'intervalOffset')::int,
         (SELECT array_agg(day::int) FROM jsonb_array_elements(payload->'daysOfMonth') day),
         (SELECT array_agg(weekday #>> '{}') FROM jsonb_array_elements(payload->'weekdays') weekday),
-        (SELECT array_agg(month::int) FROM jsonb_array_elements(payload->'months') month)
+        (SELECT array_agg((month #>> '{}')::int) FROM jsonb_array_elements(payload->'months') month)
     );
 END;
 $$;
