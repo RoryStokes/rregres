@@ -160,3 +160,167 @@ CREATE OPERATOR * (
     leftarg = rrule,
     rightarg = daterange
 );
+
+CREATE OR REPLACE FUNCTION weekdays_subset(
+    a rrule,
+    b rrule
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT NOT (b).by_weekday OR (
+        (a).by_weekday AND
+        (NOT (a).su OR (b).su) AND
+        (NOT (a).mo OR (b).mo) AND
+        (NOT (a).tu OR (b).tu) AND
+        (NOT (a).we OR (b).we) AND
+        (NOT (a).th OR (b).th) AND
+        (NOT (a).fr OR (b).fr) AND
+        (NOT (a).sa OR (b).sa)
+    )
+$$;
+
+CREATE OR REPLACE FUNCTION months_subset(
+    a rrule,
+    b rrule
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT NOT (b).by_month OR (
+        (a).by_month AND
+        (NOT (a).jan OR (b).jan) AND
+        (NOT (a).feb OR (b).feb) AND
+        (NOT (a).mar OR (b).mar) AND
+        (NOT (a).apr OR (b).apr) AND
+        (NOT (a).may OR (b).may) AND
+        (NOT (a).jun OR (b).jun) AND
+        (NOT (a).jul OR (b).jul) AND
+        (NOT (a).aug OR (b).aug) AND
+        (NOT (a).sep OR (b).sep) AND
+        (NOT (a).oct OR (b).oct) AND
+        (NOT (a).nov OR (b).nov) AND
+        (NOT (a).dec OR (b).dec)
+    )
+$$;
+
+-- Bit subset check requires a and b to use the same from-start/from-end basis for a day;
+-- a day expressed via a different basis in each rule (e.g. day 1 vs -31) is treated as
+-- not provably contained, even in months where the two actually coincide.
+CREATE OR REPLACE FUNCTION days_of_month_subset(
+    a rrule,
+    b rrule
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT
+        ((b).days_of_month_flags_from_start = 0 AND (b).days_of_month_flags_from_end = 0)
+        OR (
+            ((a).days_of_month_flags_from_start != 0 OR (a).days_of_month_flags_from_end != 0)
+            AND ((a).days_of_month_flags_from_start & ~(b).days_of_month_flags_from_start) = 0
+            AND ((a).days_of_month_flags_from_end & ~(b).days_of_month_flags_from_end) = 0
+        )
+$$;
+
+-- a's allowed interval offsets are a subset of b's iff b's interval divides a's, and
+-- a's offset reduces to b's offset modulo b's interval (subgroup-of-residues check)
+CREATE OR REPLACE FUNCTION interval_subset(
+    a rrule,
+    b rrule
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT
+        (b).interval IS NULL OR (b).interval <= 1
+        OR (
+            (a).freq = (b).freq
+            AND (a).interval IS NOT NULL AND (a).interval > 1
+            AND (a).interval % (b).interval = 0
+            AND (a).interval_offset % (b).interval = (b).interval_offset
+        )
+$$;
+
+CREATE OR REPLACE FUNCTION rrule_contained_by(
+    a rrule,
+    b rrule
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT
+        (b).date_range @> (a).date_range
+        AND weekdays_subset(a, b)
+        AND months_subset(a, b)
+        AND days_of_month_subset(a, b)
+        AND interval_subset(a, b)
+$$;
+
+-- rule_a <@ rule_b: every occurrence of rule_a is also an occurrence of rule_b.
+-- Proven structurally from the rule fields, so it holds for unbounded rules too;
+-- it is sound but not complete (see days_of_month_subset), so a false result
+-- does not prove non-containment.
+CREATE OPERATOR <@ (
+    function = rrule_contained_by,
+    leftarg = rrule,
+    rightarg = rrule
+);
+
+CREATE OR REPLACE FUNCTION rrule_contains(
+    a rrule,
+    b rrule
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT rrule_contained_by(b, a)
+$$;
+
+CREATE OPERATOR @> (
+    function = rrule_contains,
+    leftarg = rrule,
+    rightarg = rrule
+);
+
+-- Structural (non-enumerative) proof that rule's weekday/month grid is covered by the
+-- union of covering_rules, restricted to covering rules that individually span all of
+-- rule's date_range and carry no INTERVAL or day-of-month restriction of their own -
+-- i.e. rules whose only filtering effect is on weekday/month. Under that restriction, a
+-- date's coverage depends only on its (weekday, month) pair, so this checks all 84 such
+-- pairs instead of walking real calendar dates. It is sound but not complete: covering
+-- rules that only combine via date_range (e.g. Jan-Jun / Jul-Dec split) or that mix
+-- INTERVAL/day-of-month restrictions across the set fall through to a false result here
+-- and are left to the exact but date-walking rrule_is_covered_by fallback.
+CREATE OR REPLACE FUNCTION rrule_grid_covered_by(
+    rule rrule,
+    covering_rules rrule[]
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    WITH qualifying AS (
+        SELECT covering_rule FROM unnest(covering_rules) covering_rule
+        WHERE (covering_rule).date_range @> (rule).date_range
+          AND ((covering_rule).interval IS NULL OR (covering_rule).interval <= 1)
+          AND (covering_rule).days_of_month_flags_from_start = 0
+          AND (covering_rule).days_of_month_flags_from_end = 0
+    )
+    SELECT NOT EXISTS (
+        SELECT 1
+        FROM generate_series(0,6) weekday
+        CROSS JOIN generate_series(1,12) month
+        WHERE (NOT (rule).by_weekday OR weekday_match(rule, weekday))
+          AND (NOT (rule).by_month OR month_match(rule, month))
+          AND NOT EXISTS (
+              SELECT 1 FROM qualifying
+              WHERE (NOT (qualifying.covering_rule).by_weekday OR weekday_match(qualifying.covering_rule, weekday))
+                AND (NOT (qualifying.covering_rule).by_month OR month_match(qualifying.covering_rule, month))
+          )
+    )
+$$;
+
+-- Whether every occurrence of `rule` within [from_date, until_date] is matched by at
+-- least one rule in `covering_rules`. Unlike <@, this proves coverage that only
+-- emerges from combining multiple covering rules. Tries two structural (non-enumerative)
+-- checks first - rrule_contained_by against any single covering rule, then the grid
+-- check above - and only walks real occurrences within the given window if neither can
+-- prove coverage; the enumerative fallback is not a statement about occurrences outside
+-- that window.
+CREATE OR REPLACE FUNCTION rrule_is_covered_by(
+    rule rrule,
+    covering_rules rrule[],
+    from_date date,
+    until_date date
+) RETURNS BOOLEAN LANGUAGE SQL IMMUTABLE AS $$
+    SELECT
+        rule <@ ANY(covering_rules)
+        OR rrule_grid_covered_by(rule, covering_rules)
+        OR NOT EXISTS (
+            SELECT 1
+            FROM occurrences(rule, from_date, until_date) occurrence_date
+            WHERE NOT EXISTS (
+                SELECT 1 FROM unnest(covering_rules) covering_rule
+                WHERE covering_rule @> occurrence_date
+            )
+        )
+$$;

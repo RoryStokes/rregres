@@ -194,6 +194,238 @@ describe("restricted_to_date_range operator (*)", () => {
   });
 });
 
+describe("rrule containment (<@ / @>)", () => {
+  const containmentCases = [
+    {
+      label: "a weekday is contained within a set of weekdays",
+      a: "RRULE:FREQ=WEEKLY;BYDAY=MO",
+      b: "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+      expected: true,
+    },
+    {
+      label: "a set of weekdays is not contained within a single weekday",
+      a: "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+      b: "RRULE:FREQ=WEEKLY;BYDAY=MO",
+      expected: false,
+    },
+    {
+      label: "every 4th week is contained within every 2nd week at the same offset",
+      a: "RRULE:FREQ=WEEKLY;INTERVAL=4",
+      b: "RRULE:FREQ=WEEKLY;INTERVAL=2",
+      expected: true,
+    },
+    {
+      label: "every 2nd week is not contained within every 4th week",
+      a: "RRULE:FREQ=WEEKLY;INTERVAL=2",
+      b: "RRULE:FREQ=WEEKLY;INTERVAL=4",
+      expected: false,
+    },
+    {
+      label: "a monthday is contained within a superset of monthdays",
+      a: "RRULE:FREQ=MONTHLY;BYMONTHDAY=1",
+      b: "RRULE:FREQ=MONTHLY;BYMONTHDAY=1,15",
+      expected: true,
+    },
+    {
+      label: "a set of monthdays is not contained within a single monthday",
+      a: "RRULE:FREQ=MONTHLY;BYMONTHDAY=1,15",
+      b: "RRULE:FREQ=MONTHLY;BYMONTHDAY=1",
+      expected: false,
+    },
+    {
+      label: "a month is contained within a superset of months",
+      a: "RRULE:FREQ=YEARLY;BYMONTH=3",
+      b: "RRULE:FREQ=YEARLY;BYMONTH=3,6,9,12",
+      expected: true,
+    },
+    {
+      label: "unrelated rules with the same weekday but mismatched interval offsets are not contained",
+      a: "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;INTERVAL=2",
+      b: "DTSTART:20230102T000000Z\nRRULE:FREQ=WEEKLY;INTERVAL=2",
+      expected: false,
+    },
+  ];
+
+  test.each(containmentCases)("$label", async ({ a, b, expected }) => {
+    const rruleA = a.includes("DTSTART") ? a : `DTSTART:20230101T000000Z\n${a}`;
+    const rruleB = b.includes("DTSTART") ? b : `DTSTART:20230101T000000Z\n${b}`;
+
+    const { rows } = await client.query(
+      `SELECT
+        (from_rrule_string($1::text) <@ from_rrule_string($2::text)) AS contained,
+        (from_rrule_string($2::text) @> from_rrule_string($1::text)) AS contains`,
+      [rruleA, rruleB]
+    );
+
+    expect(rows[0].contained).toBe(expected);
+    expect(rows[0].contains).toBe(expected);
+  });
+
+  test.each(containmentCases)(
+    "structural result for $label matches brute-force occurrence comparison",
+    async ({ a, b }) => {
+      const rruleA = a.includes("DTSTART") ? a : `DTSTART:20230101T000000Z\n${a}`;
+      const rruleB = b.includes("DTSTART") ? b : `DTSTART:20230101T000000Z\n${b}`;
+
+      const { rows } = await client.query(
+        `SELECT
+          (from_rrule_string($1::text) <@ from_rrule_string($2::text)) AS structural,
+          NOT EXISTS (
+            SELECT 1 FROM occurrences(from_rrule_string($1::text), $3::date, $4::date) d
+            WHERE NOT (from_rrule_string($2::text) @> d)
+          ) AS brute_force`,
+        [rruleA, rruleB, "2023-01-01", "2024-12-31"]
+      );
+
+      expect(rows[0].structural).toEqual(rows[0].brute_force);
+    }
+  );
+
+  test("a rule restricted to a bounded date range is contained within its unbounded parent", async () => {
+    const { rows } = await client.query(
+      `SELECT (
+        from_rrule_string($1::text) <@ from_rrule_string($2::text)
+      ) AS contained`,
+      [
+        "DTSTART:20230601T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20230801T000000Z",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO",
+      ]
+    );
+
+    expect(rows[0].contained).toBe(true);
+  });
+});
+
+describe("rrule_is_covered_by", () => {
+  test("occurrences covered by combining several non-containing rules", async () => {
+    const { rows } = await client.query(
+      `SELECT rrule_is_covered_by(
+        from_rrule_string($1::text),
+        ARRAY[from_rrule_string($2::text), from_rrule_string($3::text)],
+        $4::date,
+        $5::date
+      ) AS covered`,
+      [
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=TH,FR",
+        "2023-01-01",
+        "2023-12-31",
+      ]
+    );
+
+    expect(rows[0].covered).toBe(true);
+  });
+
+  test("occurrences not covered by an unrelated set of rules", async () => {
+    const { rows } = await client.query(
+      `SELECT rrule_is_covered_by(
+        from_rrule_string($1::text),
+        ARRAY[from_rrule_string($2::text)],
+        $3::date,
+        $4::date
+      ) AS covered`,
+      [
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=SA",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+        "2023-01-01",
+        "2023-12-31",
+      ]
+    );
+
+    expect(rows[0].covered).toBe(false);
+  });
+
+  test("an empty covering set fails when the rule has occurrences in range", async () => {
+    const { rows } = await client.query(
+      `SELECT rrule_is_covered_by(
+        from_rrule_string($1::text),
+        ARRAY[]::rrule[],
+        $2::date,
+        $3::date
+      ) AS covered`,
+      ["DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO", "2023-01-01", "2023-01-31"]
+    );
+
+    expect(rows[0].covered).toBe(false);
+  });
+
+  test("an empty covering set is vacuously true when the rule has no occurrences in range", async () => {
+    const { rows } = await client.query(
+      `SELECT rrule_is_covered_by(
+        from_rrule_string($1::text),
+        ARRAY[]::rrule[],
+        $2::date,
+        $3::date
+      ) AS covered`,
+      ["DTSTART:20230601T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO", "2023-01-01", "2023-01-31"]
+    );
+
+    expect(rows[0].covered).toBe(true);
+  });
+});
+
+describe("rrule_grid_covered_by (structural fast path for rrule_is_covered_by)", () => {
+  test("proves a weekday split covers the full set without enumerating dates", async () => {
+    const { rows } = await client.query(
+      `SELECT rrule_grid_covered_by(
+        from_rrule_string($1::text),
+        ARRAY[from_rrule_string($2::text), from_rrule_string($3::text)]
+      ) AS covered`,
+      [
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=TH,FR",
+      ]
+    );
+
+    expect(rows[0].covered).toBe(true);
+  });
+
+  test("declines (rather than wrongly proves) coverage that only works because weekday and month combine per-rule", async () => {
+    // BYDAY=MO alone and BYMONTH=1 alone do not, between them, cover BYDAY=TU;BYMONTH=2 -
+    // a naive per-dimension union would wrongly think they do
+    const { rows } = await client.query(
+      `SELECT
+        rrule_grid_covered_by(
+          from_rrule_string($1::text),
+          ARRAY[from_rrule_string($2::text), from_rrule_string($3::text)]
+        ) AS grid_result,
+        rrule_is_covered_by(
+          from_rrule_string($1::text),
+          ARRAY[from_rrule_string($2::text), from_rrule_string($3::text)],
+          $4::date,
+          $5::date
+        ) AS full_result`,
+      [
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=TU;BYMONTH=2",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYMONTH=1",
+        "2023-01-01",
+        "2023-12-31",
+      ]
+    );
+
+    expect(rows[0].grid_result).toBe(false);
+    expect(rows[0].full_result).toBe(false);
+  });
+
+  test("declines when a covering rule has its own INTERVAL restriction", async () => {
+    const { rows } = await client.query(
+      `SELECT rrule_grid_covered_by(
+        from_rrule_string($1::text),
+        ARRAY[from_rrule_string($2::text)]
+      ) AS covered`,
+      [
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO",
+        "DTSTART:20230101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=2",
+      ]
+    );
+
+    expect(rows[0].covered).toBe(false);
+  });
+});
+
 describe("validation", () => {
   test("rejects BYDAY entries with mismatched ordinals", async () => {
     await expect(

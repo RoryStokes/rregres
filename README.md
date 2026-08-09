@@ -31,6 +31,42 @@ rregres=# SELECT occurrences(from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO'), '2
 (4 rows)
 ```
 
+## Containment
+
+As well as checking whether a rule matches a given date, rregres can check whether one rule's occurrences are entirely covered by another rule (or a set of rules) - useful for things like verifying a proposed schedule stays within an approved set of availability windows.
+
+`<@` / `@>` prove containment structurally, from the rule definitions themselves rather than by enumerating dates, so they also work for rules with no end date:
+
+```sql
+rregres=# SELECT from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO') <@ from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR');
+ ?column?
+----------
+ t
+(1 row)
+
+rregres=# SELECT from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR') <@ from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO');
+ ?column?
+----------
+ f
+(1 row)
+```
+
+This structural check is sound but not complete: a `false` result means containment couldn't be *proven* this way, not that it's disproven - in particular, it can't see coverage that only emerges from combining several rules together. For that, `rrule_is_covered_by(rule, covering_rules, from_date, until_date)` checks whether every occurrence of `rule` within the given window is matched by at least one rule in `covering_rules`:
+
+```sql
+rregres=# SELECT rrule_is_covered_by(
+    from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'),
+    ARRAY[from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE'), from_rrule_string('RRULE:FREQ=WEEKLY;BYDAY=TH,FR')],
+    '2025-01-01', '2025-12-31'
+);
+ rrule_is_covered_by
+----------------------
+ t
+(1 row)
+```
+
+`rrule_is_covered_by` tries the same structural proof first (both `<@` against each individual covering rule, and a cheaper structural check across the whole set when the covering rules only restrict weekday/month), and only falls back to walking occurrences day-by-day within `[from_date, until_date]` when neither can prove coverage. That fallback is exact only within the given window - it says nothing about occurrences outside it.
+
 ## iCalendar compatibility
 
 | Property     | Support |
